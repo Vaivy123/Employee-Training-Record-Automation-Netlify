@@ -43,6 +43,28 @@ function employeeIdFromFilename(name) {
   return m ? m[1] : null;
 }
 function textOf(el) { return [...el.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main','t')].map(n=>n.textContent).join(' ').trim(); }
+function setRunFont(run, doc) {
+  const ns='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  let rPr=run.getElementsByTagNameNS(ns,'rPr')[0];
+  if (!rPr) {
+    rPr=doc.createElementNS(ns,'w:rPr');
+    run.insertBefore(rPr,run.firstChild);
+  }
+  let rFonts=rPr.getElementsByTagNameNS(ns,'rFonts')[0];
+  if (!rFonts) {
+    rFonts=doc.createElementNS(ns,'w:rFonts');
+    rPr.insertBefore(rFonts,rPr.firstChild);
+  }
+  rFonts.setAttributeNS(ns,'w:ascii','Calibri');
+  rFonts.setAttributeNS(ns,'w:hAnsi','Calibri');
+  rFonts.setAttributeNS(ns,'w:eastAsia','Calibri');
+  rFonts.setAttributeNS(ns,'w:cs','Calibri');
+  for (const tag of ['sz','szCs']) {
+    let size=rPr.getElementsByTagNameNS(ns,tag)[0];
+    if (!size) size=rPr.appendChild(doc.createElementNS(ns,'w:'+tag));
+    size.setAttributeNS(ns,'w:val','14');
+  }
+}
 function setCellText(cell, value, doc) {
   const ns='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
   const texts=[...cell.getElementsByTagNameNS(ns,'t')];
@@ -50,10 +72,12 @@ function setCellText(cell, value, doc) {
     texts[0].textContent=value;
     if (value.startsWith(' ') || value.endsWith(' ')) texts[0].setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');
     for (const t of texts.slice(1)) t.textContent='';
+    for (const r of new Set(texts.map(t=>t.parentNode))) setRunFont(r,doc);
   } else {
     let p=cell.getElementsByTagNameNS(ns,'p')[0];
     if (!p) { p=doc.createElementNS(ns,'w:p'); cell.appendChild(p); }
     let r=doc.createElementNS(ns,'w:r'), t=doc.createElementNS(ns,'w:t'); t.textContent=value;
+    setRunFont(r,doc);
     r.appendChild(t); p.appendChild(r);
   }
 }
