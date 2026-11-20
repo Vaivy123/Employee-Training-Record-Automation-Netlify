@@ -9,16 +9,18 @@ const SHEET = 'REG-10j Individual Records';
 const norm = v => String(v ?? '').trim().toLowerCase().replace(/\s+/g,' ');
 const fmtDate = value => {
   if (value === null || value === undefined || value === '') return '';
-  let d = value;
-  if (!(d instanceof Date)) {
-    if (typeof d === 'number') d = XLSX.SSF.parse_date_code(d) ? new Date(Date.UTC(XLSX.SSF.parse_date_code(d).y, XLSX.SSF.parse_date_code(d).m-1, XLSX.SSF.parse_date_code(d).d)) : null;
-    else d = new Date(d);
+  if (typeof value === 'number') {
+    const parts=XLSX.SSF.parse_date_code(value);
+    if (!parts) return String(value);
+    return `${String(parts.d).padStart(2,'0')}-${new Date(Date.UTC(parts.y,parts.m-1,1)).toLocaleString('en-GB',{month:'short',timeZone:'UTC'})}-${parts.y}`;
   }
+  let d = value;
+  if (!(d instanceof Date)) d = new Date(d);
   if (!d || isNaN(d.getTime())) return String(value);
   return `${String(d.getUTCDate()).padStart(2,'0')}-${d.toLocaleString('en-GB',{month:'short',timeZone:'UTC'})}-${d.getUTCFullYear()}`;
 };
 function parseWorkbook(buffer) {
-  const wb = XLSX.read(buffer,{type:'array',cellDates:true});
+  const wb = XLSX.read(buffer,{type:'array',cellDates:false});
   const ws = wb.Sheets[SHEET];
   if (!ws) throw new Error(`Sheet "${SHEET}" was not found.`);
   const rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true});
