@@ -149,7 +149,7 @@ function App(){
        const matches=docs.filter(f=>employeeIdFromFilename(f.name)===emp.code);
        if(!matches.length){out.push({code:emp.code,name:emp.name,ok:false,message:'No Word document matched employee ID in filename.'});continue;}
        const file=matches[0];
-       try{const res=await updateDocx(file,emp.records);out.push({code:emp.code,name:emp.name,ok:true,fileName:file.name.replace(/\.docx$/i,'_UPDATED.docx'),blob:res.blob,updated:res.updated});}
+       try{const res=await updateDocx(file,emp.records);out.push({code:emp.code,name:emp.name,ok:true,fileName:file.name.replace(/\.docx$/i,'docx'),blob:res.blob,updated:res.updated});}
        catch(e){out.push({code:emp.code,name:emp.name,ok:false,message:e.message});}
      }
      setResults(out);setStatus(`Finished: ${out.filter(x=>x.ok).length} updated, ${out.filter(x=>!x.ok).length} needing attention.`);
