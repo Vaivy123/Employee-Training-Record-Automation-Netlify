@@ -65,6 +65,9 @@ function employeeIdFromFilename(name) {
   const m = name.match(/ACF[-_]QMS[-_]FRM[-_]51[_-](\d+)[_-]/i) || name.match(/(?:^|[_-])(\d{2,})[_-][^/]+\.docx$/i);
   return m ? m[1] : null;
 }
+function ensureDocxExtension(name) {
+  return /\.docx$/i.test(name) ? name : `${name}.docx`;
+}
 function textOf(el) { return [...el.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main','t')].map(n=>n.textContent).join(' ').trim(); }
 function setRunFont(run, doc) {
   const ns='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -214,14 +217,14 @@ function App(){
        const matches=docs.filter(f=>employeeIdFromFilename(f.name)===emp.code);
        if(!matches.length){out.push({code:emp.code,name:emp.name,ok:false,message:'No Word document matched employee ID in filename.'});continue;}
        const file=matches[0];
-       try{const res=await updateDocx(file,emp.records);out.push({code:emp.code,name:emp.name,ok:true,fileName:file.name,blob:res.blob,updated:res.updated});}
+       try{const res=await updateDocx(file,emp.records);out.push({code:emp.code,name:emp.name,ok:true,fileName:ensureDocxExtension(file.name),blob:res.blob,updated:res.updated});}
        catch(e){out.push({code:emp.code,name:emp.name,ok:false,message:e.message});}
      }
      setResults(out);setStatus(`Finished: ${out.filter(x=>x.ok).length} updated, ${out.filter(x=>!x.ok).length} needing attention.`);
    }catch(e){setError(e.message);}finally{setBusy(false);}
  }
  function downloadOne(item){const url=URL.createObjectURL(item.blob),a=document.createElement('a');a.href=url;a.download=item.fileName;a.click();URL.revokeObjectURL(url);}
- async function downloadAll(){const zip=new JSZip();results.filter(r=>r.ok).forEach(r=>zip.file(r.fileName,r.blob));const blob=await zip.generateAsync({type:'blob'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Employee-Training-Records-Updated.zip';a.click();URL.revokeObjectURL(url);}
+ async function downloadAll(){const zip=new JSZip();results.filter(r=>r.ok).forEach(r=>zip.file(ensureDocxExtension(r.fileName),r.blob));const blob=await zip.generateAsync({type:'blob'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Employee-Training-Records-Updated.zip';a.click();URL.revokeObjectURL(url);}
  const done=results.filter(x=>x.ok).length;
  return <div className="app"><header className="top"><div className="brand"><div className="brandIcon"><FileCheck2/></div><div><b>Training Records</b><small>Employee document automation</small></div></div><div className="local"><span/> Browser-only processing</div></header>
  <main><section className="hero"><div><div className="eyebrow">ACUF​​ORE · QUALITY MANAGEMENT</div><h1>Employee Training<br/><em>Record Automation</em></h1><p>Update employee Word records using training delivery details from your Excel register. Your files stay in your browser.</p></div><div className="heroArt"><div className="artSheet"><FileSpreadsheet size={34}/><span>REG-10j</span></div><div className="artArrow">→</div><div className="artDoc"><FileText size={38}/><span>FRM-51</span></div></div></section>
