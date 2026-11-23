@@ -19,6 +19,25 @@ const fmtDate = value => {
   if (!d || isNaN(d.getTime())) return String(value);
   return `${String(d.getUTCDate()).padStart(2,'0')}-${d.toLocaleString('en-GB',{month:'short',timeZone:'UTC'})}-${d.getUTCFullYear()}`;
 };
+function dateForStatus(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') {
+    const parts=XLSX.SSF.parse_date_code(value);
+    if (!parts) return null;
+    return new Date(Date.UTC(parts.y,parts.m-1,parts.d));
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  return isNaN(d.getTime()) ? null : new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()));
+}
+function trainingStatus(dueValue, deliveredValue) {
+  const due=dateForStatus(dueValue);
+  const delivered=dateForStatus(deliveredValue);
+  if (!due) return delivered ? 'Completed' : '';
+  if (delivered) return delivered > due ? 'Overdue' : 'Completed';
+  const today=new Date();
+  const todayUtc=new Date(Date.UTC(today.getFullYear(),today.getMonth(),today.getDate()));
+  return todayUtc > due ? 'Overdue' : 'Lead';
+}
 function parseWorkbook(buffer) {
   const wb = XLSX.read(buffer,{type:'array',cellDates:false});
   const ws = wb.Sheets[SHEET];
@@ -28,7 +47,7 @@ function parseWorkbook(buffer) {
   if (headerIndex < 0) throw new Error('Could not locate the employee/training column headers in REG-10j Individual Records.');
   const headers = rows[headerIndex].map(norm);
   const idx = name => headers.indexOf(norm(name));
-  const required = ['employee code','employee name','curriculum ref.','date delivered','delivered by'];
+  const required = ['employee code','employee name','curriculum ref.','due by','date delivered','delivered by'];
   const missing = required.filter(k=>idx(k)<0);
   if (missing.length) throw new Error('Missing Excel columns: '+missing.join(', '));
   const records=[];
@@ -36,7 +55,9 @@ function parseWorkbook(buffer) {
     const code=String(r[idx('employee code')]??'').trim();
     const ref=String(r[idx('curriculum ref.')]??'').trim();
     if (!code || !ref) continue;
-    records.push({code,name:String(r[idx('employee name')]??'').trim(),ref,date:fmtDate(r[idx('date delivered')]),deliveredBy:String(r[idx('delivered by')]??'').trim()});
+    const dueRaw=r[idx('due by')];
+    const deliveredRaw=r[idx('date delivered')];
+    records.push({code,name:String(r[idx('employee name')]??'').trim(),ref,due:fmtDate(dueRaw),date:fmtDate(deliveredRaw),deliveredBy:String(r[idx('delivered by')]??'').trim(),dueRaw,deliveredRaw});
   }
   return records;
 }
@@ -126,9 +147,28 @@ async function updateDocx(file, records) {
     const ref=norm(textOf(cells[colRef]));
     if (!ref || !byRef.has(ref)) continue;
     const rec=byRef.get(ref); matched++;
+    const headerCells=[...target[dataStart-1].getElementsByTagNameNS(ns,'tc')];
+    const colDue=headerCells.findIndex(c=>norm(textOf(c)).includes('due')&&norm(textOf(c)).includes('by'));
+    const colStatus=headerCells.findIndex(c=>norm(textOf(c))==='status');
+    if (colDue>=0 && cells[colDue]) setCellText(cells[colDue],rec.due,doc);
     setCellText(cells[colDate],rec.date,doc);
     setCellText(cells[colBy],rec.deliveredBy,doc);
+    if (colStatus>=0 && cells[colStatus]) setCellText(cells[colStatus],trainingStatus(rec.dueRaw,rec.deliveredRaw),doc);
     updated++;
+  }
+  for (const table of tables) {
+    const rows=[...table.getElementsByTagNameNS(ns,'tr')];
+    for (let rowIndex=0;rowIndex<rows.length;rowIndex++) {
+      const cells=[...rows[rowIndex].getElementsByTagNameNS(ns,'tc')];
+      const labels=cells.map(textOf).map(norm);
+      const gapIndex=labels.indexOf('gap');
+      if (gapIndex>=0) {
+        for (const row of rows.slice(rowIndex+1)) {
+          const gapCells=[...row.getElementsByTagNameNS(ns,'tc')];
+          if (gapCells[gapIndex]) setCellText(gapCells[gapIndex],'0',doc);
+        }
+      }
+    }
   }
   if (!matched) throw new Error('No matching curriculum references were found in the Word training table.');
   zip.file('word/document.xml',new XMLSerializer().serializeToString(doc));
@@ -149,7 +189,7 @@ function App(){
        const matches=docs.filter(f=>employeeIdFromFilename(f.name)===emp.code);
        if(!matches.length){out.push({code:emp.code,name:emp.name,ok:false,message:'No Word document matched employee ID in filename.'});continue;}
        const file=matches[0];
-       try{const res=await updateDocx(file,emp.records);out.push({code:emp.code,name:emp.name,ok:true,fileName:file.name.replace(/\.docx$/i,'docx'),blob:res.blob,updated:res.updated});}
+       try{const res=await updateDocx(file,emp.records);out.push({code:emp.code,name:emp.name,ok:true,fileName:file.name.replace(/\.docx$/i,''),blob:res.blob,updated:res.updated});}
        catch(e){out.push({code:emp.code,name:emp.name,ok:false,message:e.message});}
      }
      setResults(out);setStatus(`Finished: ${out.filter(x=>x.ok).length} updated, ${out.filter(x=>!x.ok).length} needing attention.`);
@@ -174,6 +214,6 @@ function App(){
  <div className="bulk"><div><b>Bulk update</b><small>Process all employees that have a matching Word document.</small></div><button className="primary" disabled={busy||!employees.length||!docs.length} onClick={()=>process(employees)}>{busy?<><RefreshCw className="spin"/> Processing…</>:<>Update all employees <span>→</span></>}</button></div></section>
  {status&&<div className="notice"><CheckCircle2 size={17}/>{status}</div>}{error&&<div className="error"><AlertCircle size={17}/>{error}</div>}
  {results.length>0&&<section className="steps results"><div className="stepTitle"><span>03</span><div><h2>Processing results</h2><p>{done} successful · {results.length-done} need attention</p></div></div><div className="resultHead"><b>Employee</b><b>Result</b><b>Action</b></div>{results.map((r,i)=><div className="resultRow" key={r.code+'-'+i}><div><b>{r.name}</b><small>ID {r.code}</small></div><div>{r.ok?<span className="success">Updated {r.updated} rows</span>:<span className="failed">{r.message}</span>}</div><div>{r.ok&&<button className="download" onClick={()=>downloadOne(r)}><Download size={15}/> DOCX</button>}</div></div>)}{done>0&&<button className="primary downloadAll" onClick={downloadAll}><Download size={17}/> Download all updated documents (ZIP)</button>}</section>}
- <footer><span>ACF-QMS-FRM-51 · Individual Training Record</span><span>Only “Date delivered” and “Delivered by” are modified.</span></footer></main></div>
+ <footer><span>ACF-QMS-FRM-51 · Individual Training Record</span><span>Updates due dates, delivery details, status, and competence gaps.</span></footer></main></div>
 }
 createRoot(document.getElementById('root')).render(<App/>);
