@@ -104,6 +104,22 @@ function setCellText(cell, value, doc) {
     r.appendChild(t); p.appendChild(r);
   }
 }
+function setCellColor(cell, fill, doc) {
+  const ns='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  let tcPr=cell.getElementsByTagNameNS(ns,'tcPr')[0];
+  if (!tcPr) {
+    tcPr=doc.createElementNS(ns,'w:tcPr');
+    cell.insertBefore(tcPr,cell.firstChild);
+  }
+  let shd=tcPr.getElementsByTagNameNS(ns,'shd')[0];
+  if (!shd) {
+    shd=doc.createElementNS(ns,'w:shd');
+    tcPr.appendChild(shd);
+  }
+  shd.setAttributeNS(ns,'w:val','clear');
+  shd.setAttributeNS(ns,'w:color','auto');
+  shd.setAttributeNS(ns,'w:fill',fill);
+}
 async function updateDocx(file, records) {
   const zip=await JSZip.loadAsync(file);
   const docXml=zip.file('word/document.xml');
@@ -153,7 +169,13 @@ async function updateDocx(file, records) {
     if (colDue>=0 && cells[colDue]) setCellText(cells[colDue],rec.due,doc);
     setCellText(cells[colDate],rec.date,doc);
     setCellText(cells[colBy],rec.deliveredBy,doc);
-    if (colStatus>=0 && cells[colStatus]) setCellText(cells[colStatus],trainingStatus(rec.dueRaw,rec.deliveredRaw),doc);
+    if (colStatus>=0 && cells[colStatus]) {
+      const status=trainingStatus(rec.dueRaw,rec.deliveredRaw);
+      setCellText(cells[colStatus],status,doc);
+      if (status==='Completed') setCellColor(cells[colStatus],'C6EFCE',doc);
+      else if (status==='Overdue') setCellColor(cells[colStatus],'FFC7CE',doc);
+      else setCellColor(cells[colStatus],'FFF2CC',doc);
+    }
     updated++;
   }
   for (const table of tables) {
@@ -165,7 +187,10 @@ async function updateDocx(file, records) {
       if (gapIndex>=0) {
         for (const row of rows.slice(rowIndex+1)) {
           const gapCells=[...row.getElementsByTagNameNS(ns,'tc')];
-          if (gapCells[gapIndex]) setCellText(gapCells[gapIndex],'0',doc);
+          if (gapCells[gapIndex]) {
+            setCellText(gapCells[gapIndex],'0',doc);
+            setCellColor(gapCells[gapIndex],'C6EFCE',doc);
+          }
         }
       }
     }
